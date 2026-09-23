@@ -10,10 +10,22 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - run: python -m compileall -q app
       - run: pytest -q
-  docker:
+  e2e:
+    # Full stack (PostgreSQL/pgvector + harness + OpenAI-compatible stub + MCP demo) via Docker Compose.
     runs-on: ubuntu-latest
+    env:
+      COMPOSE: docker compose -f docker-compose.yml -f compose.e2e.yaml
     steps:
       - uses: actions/checkout@v6
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/build-push-action@v6
-        with: {context: '.', push: false}
+      - name: Create throwaway .env (random secrets, never committed)
+        run: |
+          sed -e "s/CHANGE_DB_PASSWORD/$(openssl rand -hex 24)/" \
+              -e "s/CHANGE_TO_LONG_RANDOM_SECRET/$(openssl rand -hex 32)/" \
+              -e "s/CHANGE_ADMIN_PASSWORD/$(openssl rand -hex 16)/" .env.example > .env
+      - run: docker build -t ai-harness:local .
+      - run: $COMPOSE up -d --no-build --wait
+      - run: python3 e2e/smoke.py --restart
+      - if: failure()
+        run: $COMPOSE logs --no-color
+      - if: always()
+        run: $COMPOSE down -v
