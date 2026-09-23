@@ -1,10 +1,14 @@
+# Local development / homologation. Ports bind to 127.0.0.1 only.
+# Usage: see README ("Desenvolvimento local").
+x-db-url: &db_url postgresql+asyncpg://harness:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/harness
 services:
   postgres:
     image: pgvector/pgvector:pg17
     environment:
       POSTGRES_DB: harness
       POSTGRES_USER: harness
-      POSTGRES_PASSWORD: harness
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    ports: ["127.0.0.1:5432:5432"]
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -13,9 +17,12 @@ services:
       timeout: 3s
       retries: 20
   harness:
+    image: ${HARNESS_IMAGE:-ai-harness:local}
     build: .
     env_file: .env
-    ports: ["8000:8000"]
+    environment:
+      DATABASE_URL: *db_url
+    ports: ["127.0.0.1:8000:8000"]
     volumes:
       - ./workspace:/workspace
     depends_on:
@@ -28,8 +35,8 @@ services:
     cap_drop: ["ALL"]
   ollama:
     image: ollama/ollama:latest
-    profiles: ["local"]
-    ports: ["11434:11434"]
+    profiles: ["local-model"]
+    ports: ["127.0.0.1:11434:11434"]
     volumes:
       - ollama:/root/.ollama
 volumes:

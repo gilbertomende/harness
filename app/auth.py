@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import hmac
 import jwt
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -21,6 +22,11 @@ def current_user(creds: HTTPAuthorizationCredentials = Depends(bearer)) -> Princ
         p = jwt.decode(creds.credentials, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
         return Principal(sub=p["sub"], role=p.get("role","user"))
     except Exception: raise HTTPException(401, "Invalid or expired token")
+
+def check_password(username: str, password: str) -> bool:
+    ok_user = hmac.compare_digest(username.encode(), settings.admin_username.encode())
+    ok_pass = hmac.compare_digest(password.encode(), settings.admin_password.encode())
+    return ok_user and ok_pass
 
 def require_admin(user: Principal = Depends(current_user)):
     if user.role != "admin": raise HTTPException(403, "Admin role required")

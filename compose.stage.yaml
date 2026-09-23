@@ -1,12 +1,16 @@
+# Stage / VPS (Ubuntu + Docker Engine). Put a TLS reverse proxy in front of 127.0.0.1:8000.
+# Build locally:            docker compose -f compose.stage.yaml up -d --build
+# Or pull a published tag:  HARNESS_IMAGE=ghcr.io/<owner>/harness:v0.2.0 docker compose -f compose.stage.yaml up -d
+x-db-url: &db_url postgresql+asyncpg://harness:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/harness
 services:
   postgres:
     image: pgvector/pgvector:pg17
     restart: unless-stopped
-    env_file: .env
+    # Only the DB credentials; app secrets (JWT, API keys) are not passed to this container.
     environment:
       POSTGRES_DB: harness
       POSTGRES_USER: harness
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-CHANGE_DB_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
     volumes: [pgdata:/var/lib/postgresql/data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U harness -d harness"]
@@ -14,9 +18,12 @@ services:
       timeout: 3s
       retries: 20
   harness:
+    image: ${HARNESS_IMAGE:-ai-harness:local}
     build: .
     restart: unless-stopped
     env_file: .env
+    environment:
+      DATABASE_URL: *db_url
     ports: ["127.0.0.1:8000:8000"]
     volumes: ["./workspace:/workspace"]
     depends_on:

@@ -1,0 +1,32 @@
+# Homologation overlay: replaces the model backend with a deterministic OpenAI-compatible stub
+# and adds a demo MCP server. Both reuse the harness image (no extra build, no model download).
+#   docker compose -f docker-compose.yml -f compose.e2e.yaml up -d
+#   python3 e2e/smoke.py
+# Never use this overlay in stage/production.
+services:
+  harness:
+    environment:
+      OLLAMA_BASE_URL: http://fakellm:9000/v1
+      OLLAMA_MODEL: fake-chat
+      DEFAULT_MODEL: fake-chat
+      EMBED_PROVIDER: ollama
+      EMBED_MODEL: fake-embed
+      OPENROUTER_API_KEY: ""
+      ROUTER9_MODEL: ""
+    depends_on:
+      fakellm: {condition: service_healthy}
+      mcp-demo: {condition: service_healthy}
+  fakellm:
+    image: ${HARNESS_IMAGE:-ai-harness:local}
+    command: ["uvicorn", "fake_llm:app", "--app-dir", "/e2e", "--host", "0.0.0.0", "--port", "9000"]
+    volumes: ["./e2e:/e2e:ro"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9000/v1/models', timeout=2)"]
+      interval: 5s
+  mcp-demo:
+    image: ${HARNESS_IMAGE:-ai-harness:local}
+    command: ["python", "/e2e/mcp_demo.py"]
+    volumes: ["./e2e:/e2e:ro"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 9100), 2)"]
+      interval: 5s
