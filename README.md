@@ -2,6 +2,19 @@
 
 Harness FastAPI independente de provedor com sessão PostgreSQL, agent loop, tool registry, Ollama/OpenRouter/9Router (camada OpenAI-compatible), RAG/pgvector, MCP, sandbox, JWT/RBAC, auditoria e fallback automático de modelos.
 
+## Arquitetura e governança
+
+Estes documentos são a referência para qualquer mudança:
+
+| Documento | Conteúdo |
+|---|---|
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Princípios, componentes, deployment e restrições |
+| [`SECURITY.md`](SECURITY.md) | Fronteiras de confiança, classes de ferramentas, controles de stage e de produção |
+| [`DECISIONS.md`](DECISIONS.md) e [`docs/adr/`](docs/adr/) | Índice e registros de decisão (ADR-001 a ADR-008) |
+| [`ROADMAP.md`](ROADMAP.md) | Versões e gates de aceite |
+| [`docs/v0.2-acceptance.md`](docs/v0.2-acceptance.md) | Situação de cada item do gate v0.2.x, com a evidência correspondente |
+| [`CLAUDE.md`](CLAUDE.md) | Regras para agentes de código que trabalham neste repositório |
+
 ## Topologia recomendada
 
 - **Local:** Docker Desktop/Compose (`docker-compose.yml`) para desenvolvimento e homologação.
@@ -84,7 +97,7 @@ Reenvie o `session_id` retornado pelo `/chat` para continuar a mesma sessão.
 ```bash
 docker compose build
 docker compose -f docker-compose.yml -f compose.e2e.yaml up -d --no-build --wait
-python3 e2e/smoke.py --restart          # esperado: "27/27 checks passed"
+python3 e2e/smoke.py --restart          # esperado: "30/30 checks passed" (pode ser repetido no mesmo banco)
 docker compose -f docker-compose.yml -f compose.e2e.yaml down
 ```
 
@@ -95,7 +108,21 @@ python3 e2e/real_model_check.py                          # Ollama: chat, tool ca
 python3 e2e/real_model_check.py --provider openrouter    # requer OPENROUTER_API_KEY no .env
 ```
 
-### 6. Inspeção e limpeza
+### 6. Auditoria
+
+Cada execução do `/chat` gera um `request_id`, que aparece na resposta e nos eventos:
+
+- `chat`: pedido recebido.
+- `tool_call`: uma por tentativa de ferramenta, com `status` `ok`, `denied`, `error` ou `approval_required`, classe, latência e hash dos argumentos (nunca os argumentos em si).
+- `chat_result`: resultado final, com provider, modelo, passos e latência.
+- Também são auditados: aprovações, registro e habilitação de MCP.
+
+```bash
+docker compose exec postgres psql -U harness -d harness -c \
+  "select created_at, action, detail->>'status' status, detail->>'tool' tool from audit_events order by created_at desc limit 20;"
+```
+
+### 7. Inspeção e limpeza
 
 ```bash
 docker compose logs -f harness
@@ -135,11 +162,18 @@ O container do PostgreSQL recebe apenas as credenciais do banco, sem JWT nem cha
 - É possível fixar `provider` e `model` em cada request.
 - `private=true` só aceita provider local (Ollama). Pedir `provider=openrouter` ou `9router` com `private=true` retorna 403.
 - Cada provider usa timeout `LLM_TIMEOUT_SECONDS` (padrão 120) e `LLM_MAX_RETRIES` (padrão 1). O fallback entre providers é o mecanismo principal de nova tentativa.
+- `CLOUD_PROVIDERS_ENABLED=false` (chave de incidente, SECURITY.md §13) faz toda chamada, inclusive embeddings, ficar só no Ollama.
 - Quando nenhum provider responde, `/chat` retorna **503** com o motivo. Falhas do provider de embeddings em `/rag/*` também retornam 503; isso inclui modelo não baixado e dimensão diferente de 768.
 
-## Aprovação de ferramentas mutáveis
+## Classes de ferramentas e aprovação (SECURITY.md §4, ADR-007/008)
 
-Ferramentas MCP são tratadas como mutáveis, exceto as que o servidor declara `readOnlyHint`. Com `APPROVAL_REQUIRED_FOR_MUTATING_TOOLS=true`:
+Toda ferramenta tem uma classe de efeito: `READ`, `QUERY`, `WRITE`, `EXEC` ou `DESTRUCTIVE`. Veja a classificação efetiva em `GET /tools` (somente admin).
+
+- Nativas: `read_file` e `list_files` = READ; `rag_search` = QUERY; `shell` = EXEC (sandbox de aplicação; sem aprovação por padrão).
+- Ferramenta sem classe é tratada como `DESTRUCTIVE` (fail closed): só admin e com aprovação.
+- As classes que exigem aprovação são configuradas em `APPROVAL_REQUIRED_EFFECTS` (padrão `WRITE,DESTRUCTIVE`).
+
+Com `APPROVAL_REQUIRED_FOR_MUTATING_TOOLS=true`:
 
 1. O `/chat` não executa a chamada; ele retorna `pending_approvals` com o `id`.
 2. Um admin lista as pendências em `GET /approvals` e aprova (ou rejeita) aquela chamada exata com `POST /approvals/{id}` e o corpo `{"approve": true}`.
@@ -149,10 +183,14 @@ O cliente não pode se autoaprovar (não existe campo `approved` no `/chat`).
 
 ## MCP
 
-`POST /mcp/servers` (somente admin) com `{"name","url","prefix"}`:
+`POST /mcp/servers` (somente admin) com `{"name","url","prefix","read_only_tools":[...]}`:
 
-- Nome duplicado retorna 409; servidor inalcançável retorna 502.
-- Os servidores registrados são recarregados na inicialização. Falhas nessa recarga aparecem no log como `mcp_import_failed`.
+- **Só o admin libera execução automática.** As ferramentas listadas em `read_only_tools` viram `QUERY`. As anotações do próprio servidor só podem restringir: `readOnlyHint` ou `destructiveHint=false` resultam em `WRITE`; o resto vira `DESTRUCTIVE` (só admin).
+- Nome ou prefixo duplicado retorna 409; URL que não é `http(s)` ou host fora de `MCP_ALLOWED_HOSTS` retorna 422; servidor inalcançável retorna 502.
+- Cada chamada tem timeout de `MCP_TIMEOUT_SECONDS` e a saída é limitada a `TOOL_OUTPUT_MAX_CHARS`.
+- `PATCH /mcp/servers/{name}` com `{"enabled": false}` remove as ferramentas na hora (resposta a incidente). `{"enabled": true}` recarrega.
+- Os servidores habilitados são recarregados na inicialização, com a classificação salva. Falhas nessa recarga aparecem no log como `mcp_import_failed`.
+- Em produção, defina `MCP_ALLOWED_HOSTS`.
 
 ## Sandbox
 
