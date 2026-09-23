@@ -2,6 +2,7 @@ import logging, time
 from app.config import settings
 from app.llm.provider import OpenAICompatible
 log = logging.getLogger("model_router")
+LOCAL_PROVIDERS = ("ollama",)
 
 class Router:
     def __init__(self):
@@ -17,8 +18,10 @@ class Router:
         return self.providers[name]
 
     def candidates(self, requested="auto", model=None, private=False):
+        if private and requested not in ("auto", *LOCAL_PROVIDERS):
+            raise PermissionError(f"Private requests may only use local providers: {', '.join(LOCAL_PROVIDERS)}")
         if requested != "auto": return [(requested, model or self.models.get(requested) or settings.default_model)]
-        order = ["ollama"] if private else ["ollama","9router","openrouter"]
+        order = list(LOCAL_PROVIDERS) if private else ["ollama","9router","openrouter"]
         return [(p, model or self.models[p]) for p in order if self.models.get(p)]
 
     async def chat(self, *, requested="auto", model=None, messages, tools=None, private=False):

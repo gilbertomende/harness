@@ -26,9 +26,19 @@ Use o token Bearer em `/chat`, `/rag/*` e `/mcp/*`.
 
 `DEFAULT_PROVIDER=auto` tenta Ollama -> 9Router -> OpenRouter. `private=true` restringe a chamada ao Ollama. Também é possível fixar `provider` e `model` por request.
 
+`private=true` só aceita provider local (Ollama); pedir `provider=openrouter`/`9router` com `private=true` retorna 403.
+
+## Aprovação de ferramentas mutáveis
+
+Ferramentas MCP são tratadas como mutáveis, exceto as que o servidor declara `readOnlyHint`. Com `APPROVAL_REQUIRED_FOR_MUTATING_TOOLS=true`, o `/chat` não executa a chamada: ele retorna `pending_approvals` com o `id`. Um admin aprova (ou rejeita) aquela chamada exata com `POST /approvals/{id}` `{"approve": true}` e lista as pendências em `GET /approvals`. Depois o usuário pede ao agente para repetir a chamada, que roda uma única vez com os mesmos argumentos. O campo `approved` do `/chat` foi removido; o cliente não se autoaprova.
+
+## Sandbox
+
+A ferramenta `shell` aceita apenas `ls pwd cat head tail wc find grep stat du df`, sem `awk`/`sed`. Flags que executam, escrevem ou seguem symlinks (`find -exec/-delete/-L`, `grep -R` etc.) são bloqueadas, todo argumento de caminho precisa ficar dentro de `SANDBOX_ROOT`, e o processo roda sem as variáveis de ambiente do harness.
+
 ## Git
 
-`CI` valida Python, testes e build Docker. Tags `v*` publicam a imagem no GHCR.
+`CI` valida Python, testes (`pip install -r requirements-dev.txt && pytest`) e build Docker. Tags `v*` publicam a imagem no GHCR.
 
 ## Antes de produção
 
