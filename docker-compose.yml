@@ -1,0 +1,37 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: harness
+      POSTGRES_USER: harness
+      POSTGRES_PASSWORD: harness
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U harness -d harness"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  harness:
+    build: .
+    env_file: .env
+    ports: ["8000:8000"]
+    volumes:
+      - ./workspace:/workspace
+    depends_on:
+      postgres:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: ["ALL"]
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["local"]
+    ports: ["11434:11434"]
+    volumes:
+      - ollama:/root/.ollama
+volumes:
+  pgdata:
+  ollama:
