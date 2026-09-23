@@ -24,6 +24,15 @@ class Settings(BaseSettings):
     sandbox_root: str = "/workspace"
     log_level: str = "INFO"
     max_agent_steps: int = 8
+    llm_timeout_seconds: float = 120.0
+    llm_max_retries: int = 1
     approval_required_for_mutating_tools: bool = True
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+INSECURE_MARKERS = ("CHANGE", "change-me")
+def insecure_settings(s: "Settings") -> list[str]:
+    """Names of security settings still holding placeholder/weak values."""
+    bad = []
+    if len(s.jwt_secret) < 32 or any(m in s.jwt_secret for m in INSECURE_MARKERS): bad.append("JWT_SECRET (>=32 chars, not a placeholder)")
+    if len(s.admin_password) < 12 or any(m in s.admin_password for m in INSECURE_MARKERS): bad.append("ADMIN_PASSWORD (>=12 chars, not a placeholder)")
+    return bad
 settings = Settings()

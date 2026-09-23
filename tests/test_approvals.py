@@ -1,8 +1,6 @@
 import asyncio, json
 from types import SimpleNamespace as NS
 import pytest
-from app.db.core import engine
-from app.db.models import Base
 from app.agent import loop
 from app.agent.approvals import decide, list_pending
 from app.tools.registry import registry
@@ -23,11 +21,8 @@ class FakeRouter:
         return NS(choices=[NS(message=msg)]), "fake", "fake-model"
 
 @pytest.fixture(autouse=True)
-def db(monkeypatch):
-    async def reset():
-        async with engine.begin() as c:
-            await c.run_sync(Base.metadata.drop_all); await c.run_sync(Base.metadata.create_all)
-    asyncio.run(reset()); calls.clear()
+def fake_router(db, monkeypatch):
+    calls.clear()
     monkeypatch.setattr(loop, "router", FakeRouter())
 
 def test_client_cannot_self_approve():

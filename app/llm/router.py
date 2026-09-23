@@ -3,6 +3,10 @@ from app.config import settings
 from app.llm.provider import OpenAICompatible
 log = logging.getLogger("model_router")
 LOCAL_PROVIDERS = ("ollama",)
+KEY_REQUIRED = {"openrouter"}  # hosted providers that always reject requests without an API key
+
+class ProvidersUnavailable(RuntimeError):
+    """No configured provider could serve the request (infrastructure, not a client error)."""
 
 class Router:
     def __init__(self):
@@ -12,6 +16,10 @@ class Router:
             "9router": OpenAICompatible(settings.router9_base_url, settings.router9_api_key),
         }
         self.models = {"ollama":settings.ollama_model,"openrouter":settings.openrouter_model,"9router":settings.router9_model}
+        self.keys = {"ollama":settings.ollama_api_key,"openrouter":settings.openrouter_api_key,"9router":settings.router9_api_key}
+
+    def configured(self, name):
+        return bool(self.models.get(name)) and (name not in KEY_REQUIRED or bool(self.keys.get(name)))
 
     def get(self, name):
         if name not in self.providers: raise ValueError(f"Unknown provider: {name}")
@@ -20,9 +28,15 @@ class Router:
     def candidates(self, requested="auto", model=None, private=False):
         if private and requested not in ("auto", *LOCAL_PROVIDERS):
             raise PermissionError(f"Private requests may only use local providers: {', '.join(LOCAL_PROVIDERS)}")
-        if requested != "auto": return [(requested, model or self.models.get(requested) or settings.default_model)]
+        if requested != "auto":
+            self.get(requested)
+            if requested in KEY_REQUIRED and not self.keys.get(requested):
+                raise ProvidersUnavailable(f"{requested}: API key not configured")
+            return [(requested, model or self.models.get(requested) or settings.default_model)]
         order = list(LOCAL_PROVIDERS) if private else ["ollama","9router","openrouter"]
-        return [(p, model or self.models[p]) for p in order if self.models.get(p)]
+        found = [(p, model or self.models[p]) for p in order if self.configured(p)]
+        if not found: raise ProvidersUnavailable("No model provider configured")
+        return found
 
     async def chat(self, *, requested="auto", model=None, messages, tools=None, private=False):
         errors=[]
@@ -34,5 +48,5 @@ class Router:
                 return result, provider, selected_model
             except Exception as e:
                 errors.append(f"{provider}: {e}"); log.warning("provider_failed=%s error=%s",provider,e)
-        raise RuntimeError("All model providers failed: " + " | ".join(errors))
+        raise ProvidersUnavailable("All model providers failed: " + " | ".join(errors))
 router=Router()
