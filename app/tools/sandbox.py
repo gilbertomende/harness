@@ -1,7 +1,7 @@
 from pathlib import Path
 import asyncio, os, shlex
 from app.config import settings
-from app.tools.registry import registry
+from app.tools.registry import registry, Effect
 ROOT = Path(settings.sandbox_root).resolve()
 # awk/sed are excluded on purpose: awk system() and GNU sed "e"/"w"/-i can execute or write.
 ALLOWED = {"ls","pwd","cat","head","tail","wc","find","grep","stat","du","df"}
@@ -41,6 +41,6 @@ async def shell(command: str) -> str:
     try: out,_ = await asyncio.wait_for(proc.communicate(),timeout=10)
     except asyncio.TimeoutError: proc.kill(); await proc.wait(); raise ValueError("Command timeout")
     return out.decode(errors="replace")[:50000]
-registry.register("read_file","Read a UTF-8 text file inside the sandbox",{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]},read_file)
-registry.register("list_files","List files inside the sandbox",{"type":"object","properties":{"path":{"type":"string","default":"."}}},list_files)
-registry.register("shell","Run a read-only allowlisted shell command inside the sandbox ("+", ".join(sorted(ALLOWED))+"). Paths must stay inside the sandbox.",{"type":"object","properties":{"command":{"type":"string"}},"required":["command"]},shell)
+registry.register("read_file","Read a UTF-8 text file inside the sandbox",{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]},read_file,effect=Effect.READ)
+registry.register("list_files","List files inside the sandbox",{"type":"object","properties":{"path":{"type":"string","default":"."}}},list_files,effect=Effect.READ)
+registry.register("shell","Run a read-only allowlisted shell command inside the sandbox ("+", ".join(sorted(ALLOWED))+"). Paths must stay inside the sandbox.",{"type":"object","properties":{"command":{"type":"string"}},"required":["command"]},shell,effect=Effect.EXEC)

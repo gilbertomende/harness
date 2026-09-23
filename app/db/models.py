@@ -11,7 +11,7 @@ class Message(Base):
 class DocumentChunk(Base):
     __tablename__="document_chunks"; id:Mapped[str]=mapped_column(String,primary_key=True,default=lambda:str(uuid.uuid4())); source:Mapped[str]=mapped_column(String(512),index=True); content:Mapped[str]=mapped_column(Text); embedding:Mapped[list]=mapped_column(Vector(EMBEDDING_DIM))
 class MCPServer(Base):
-    __tablename__="mcp_servers"; id:Mapped[str]=mapped_column(String,primary_key=True,default=lambda:str(uuid.uuid4())); name:Mapped[str]=mapped_column(String(100),unique=True); url:Mapped[str]=mapped_column(String(1024)); prefix:Mapped[str]=mapped_column(String(64)); enabled:Mapped[bool]=mapped_column(Boolean,default=True); created_at:Mapped[object]=mapped_column(DateTime(timezone=True),server_default=func.now())
+    __tablename__="mcp_servers"; id:Mapped[str]=mapped_column(String,primary_key=True,default=lambda:str(uuid.uuid4())); name:Mapped[str]=mapped_column(String(100),unique=True); url:Mapped[str]=mapped_column(String(1024)); prefix:Mapped[str]=mapped_column(String(64)); read_only_tools:Mapped[list]=mapped_column(JSON,default=list); enabled:Mapped[bool]=mapped_column(Boolean,default=True); created_at:Mapped[object]=mapped_column(DateTime(timezone=True),server_default=func.now())
 class AuditEvent(Base):
     __tablename__="audit_events"; id:Mapped[str]=mapped_column(String,primary_key=True,default=lambda:str(uuid.uuid4())); actor:Mapped[str]=mapped_column(String,index=True); action:Mapped[str]=mapped_column(String,index=True); detail:Mapped[dict]=mapped_column(JSON,default=dict); created_at:Mapped[object]=mapped_column(DateTime(timezone=True),server_default=func.now())
 class ToolApproval(Base):

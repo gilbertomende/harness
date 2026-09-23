@@ -26,14 +26,16 @@ class Router:
         return self.providers[name]
 
     def candidates(self, requested="auto", model=None, private=False):
-        if private and requested not in ("auto", *LOCAL_PROVIDERS):
-            raise PermissionError(f"Private requests may only use local providers: {', '.join(LOCAL_PROVIDERS)}")
+        local_only = private or not settings.cloud_providers_enabled
+        if local_only and requested not in ("auto", *LOCAL_PROVIDERS):
+            why = "Private requests" if private else "Cloud providers are disabled (CLOUD_PROVIDERS_ENABLED=false); requests"
+            raise PermissionError(f"{why} may only use local providers: {', '.join(LOCAL_PROVIDERS)}")
         if requested != "auto":
             self.get(requested)
             if requested in KEY_REQUIRED and not self.keys.get(requested):
                 raise ProvidersUnavailable(f"{requested}: API key not configured")
             return [(requested, model or self.models.get(requested) or settings.default_model)]
-        order = list(LOCAL_PROVIDERS) if private else ["ollama","9router","openrouter"]
+        order = list(LOCAL_PROVIDERS) if local_only else ["ollama","9router","openrouter"]
         found = [(p, model or self.models[p]) for p in order if self.configured(p)]
         if not found: raise ProvidersUnavailable("No model provider configured")
         return found

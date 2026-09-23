@@ -1,7 +1,7 @@
 from sqlalchemy import select
 from app.db.core import SessionLocal
 from app.db.models import DocumentChunk, EMBEDDING_DIM
-from app.llm.router import router, ProvidersUnavailable
+from app.llm.router import router, ProvidersUnavailable, LOCAL_PROVIDERS
 from app.config import settings
 
 def chunks(text: str, size=1200, overlap=150):
@@ -12,6 +12,8 @@ def chunks(text: str, size=1200, overlap=150):
 
 async def embed(texts: list[str]) -> list[list[float]]:
     """Embed via the configured provider; backend failures and dimension mismatches become ProvidersUnavailable."""
+    if not settings.cloud_providers_enabled and settings.embed_provider not in LOCAL_PROVIDERS:
+        raise ProvidersUnavailable(f"EMBED_PROVIDER={settings.embed_provider} is a cloud provider and CLOUD_PROVIDERS_ENABLED=false")
     try:
         vectors = await router.get(settings.embed_provider).embed(model=settings.embed_model, texts=texts)
     except Exception as e:

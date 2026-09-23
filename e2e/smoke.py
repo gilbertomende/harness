@@ -56,6 +56,8 @@ def main():
     a = ap.parse_args(); BASE = a.base.rstrip("/")
     wait_healthy()
     S = {}
+    run = str(int(time.time()))[-6:]
+    P = f"demo{run}"          # unique MCP prefix per run, so the script can be re-run on the same database
 
     # 7. health + auth
     check("health", lambda: call("GET", "/health"))
@@ -130,33 +132,50 @@ def main():
 
     # 12. MCP
     def mcp_add():
-        r = call("POST", "/mcp/servers", {"name": f"demo-{int(time.time())}", "url": MCP_URL, "prefix": "demo"}, t())
-        assert set(r["tools"]) >= {"demo_add", "demo_append_note"}, r; return f"tools={r['tools']}"
-    check("mcp: register streamable-HTTP server", mcp_add)
+        S["mcp"] = f"demo-{run}"
+        r = call("POST", "/mcp/servers", {"name": S["mcp"], "url": MCP_URL, "prefix": P, "read_only_tools": ["add"]}, t())
+        eff = {x["name"]: x["effect"] for x in r["tools"]}
+        assert eff.get(f"{P}_add") == "QUERY" and eff.get(f"{P}_append_note") == "DESTRUCTIVE", r
+        return f"effects={eff}"
+    check("mcp: register streamable-HTTP server (admin classification)", mcp_add)
+    def tools_view():
+        rows = {x["name"]: x for x in call("GET", "/tools", token=t())}
+        assert rows["shell"]["effect"] == "EXEC" and rows[f"{P}_append_note"]["requires_approval"], rows
+        return f"{len(rows)} tools classified"
+    check("governance: /tools shows effect classes", tools_view)
     def mcp_dup():
-        name = f"dup-{int(time.time())}"
-        call("POST", "/mcp/servers", {"name": name, "url": MCP_URL, "prefix": "dup"}, t())
-        call("POST", "/mcp/servers", {"name": name, "url": MCP_URL, "prefix": "dup"}, t(), expect=409); return "409"
+        name = f"dup-{run}"
+        call("POST", "/mcp/servers", {"name": name, "url": MCP_URL, "prefix": f"dup{run}"}, t())
+        call("POST", "/mcp/servers", {"name": name, "url": MCP_URL, "prefix": f"dup{run}b"}, t(), expect=409); return "409"
     check("mcp: duplicate name -> 409", mcp_dup)
+    check("mcp: unsafe URL scheme -> 422",
+          lambda: call("POST", "/mcp/servers", {"name": "f", "url": "file:///etc/passwd", "prefix": "f"}, t(), expect=422) and "422")
     check("mcp: unreachable server -> 502",
           lambda: call("POST", "/mcp/servers", {"name": "unreachable", "url": "http://127.0.0.1:9/mcp", "prefix": "x"}, t(), expect=502) and "502")
     def mcp_readonly():
-        a = tool("demo_add", {"a": 2, "b": 40}); assert "42" in a, a; return a[:80]
+        a = tool(f"{P}_add", {"a": 2, "b": 40}); assert "42" in a, a; return a[:80]
     check("mcp: read-only tool executes", mcp_readonly)
     def mcp_gate():
-        r = call("POST", "/chat", {"message": 'CALL demo_append_note {"text": "hi"}'}, t())
+        r = call("POST", "/chat", {"message": f'CALL {P}_append_note {{"text": "hi"}}'}, t())
         assert r.get("pending_approvals"), r
         S["aid"], S["sid2"] = r["pending_approvals"][0]["id"], r["session_id"]; return f"pending approval {S['aid'][:8]}"
     check("approval: mutating MCP tool is gated", mcp_gate)
     def mcp_approve():
         assert call("POST", f"/approvals/{S['aid']}", {"approve": True}, t())["status"] == "approved"
-        a = call("POST", "/chat", {"message": 'CALL demo_append_note {"text": "hi"}', "session_id": S["sid2"]}, t())["answer"]
+        a = call("POST", "/chat", {"message": f'CALL {P}_append_note {{"text": "hi"}}', "session_id": S["sid2"]}, t())["answer"]
         assert "notes=" in a, a; return a[:80]
     check("approval: admin-approved call executes once", mcp_approve)
     def mcp_single_use():
-        r = call("POST", "/chat", {"message": 'CALL demo_append_note {"text": "hi"}', "session_id": S["sid2"]}, t())
+        r = call("POST", "/chat", {"message": f'CALL {P}_append_note {{"text": "hi"}}', "session_id": S["sid2"]}, t())
         assert r.get("pending_approvals"), r; return "new approval required"
     check("approval: grant is single-use", mcp_single_use)
+    def mcp_disable():
+        r = call("PATCH", f"/mcp/servers/{S['mcp']}", {"enabled": False}, t()); assert f"{P}_add" in r["tools"], r
+        a = tool(f"{P}_add", {"a": 1, "b": 1}); assert "TOOL_NOT_OFFERED" in a, a
+        call("PATCH", f"/mcp/servers/{S['mcp']}", {"enabled": True}, t())
+        a = tool(f"{P}_add", {"a": 1, "b": 1}); assert '"result": 2' in a, a
+        return "disabled tools vanish; re-enable restores them"
+    check("incident: disable/re-enable MCP server", mcp_disable)
     summary()
 
 if __name__ == "__main__":

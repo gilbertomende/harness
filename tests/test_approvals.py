@@ -3,12 +3,12 @@ from types import SimpleNamespace as NS
 import pytest
 from app.agent import loop
 from app.agent.approvals import decide, list_pending
-from app.tools.registry import registry
+from app.tools.registry import registry, Effect
 
 calls = []
 async def danger(target: str):
     calls.append(target); return f"deleted {target}"
-registry.register("danger", "mutating test tool", {"type":"object","properties":{"target":{"type":"string"}}}, danger, mutating=True)
+registry.register("danger", "mutating test tool", {"type":"object","properties":{"target":{"type":"string"}}}, danger, effect=Effect.WRITE)
 
 class FakeRouter:
     """Calls `danger` on the first step, then answers."""

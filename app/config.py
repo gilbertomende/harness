@@ -27,6 +27,23 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = 120.0
     llm_max_retries: int = 1
     approval_required_for_mutating_tools: bool = True
+    # Effect classes that need admin approval (SECURITY.md §4). Unclassified tools count as DESTRUCTIVE.
+    approval_required_effects: str = "WRITE,DESTRUCTIVE"
+    # Incident switch (SECURITY.md §13.3): false = every request is local-only (no 9Router/OpenRouter).
+    cloud_providers_enabled: bool = True
+    # MCP boundary (SECURITY.md §8). Empty allowlist = any host (stage only; set it for production).
+    mcp_allowed_hosts: str = ""
+    mcp_timeout_seconds: float = 30.0
+    tool_output_max_chars: int = 50000
+
+    @property
+    def approval_effects(self) -> frozenset:
+        from app.tools.registry import Effect
+        if not self.approval_required_for_mutating_tools: return frozenset()
+        return frozenset(Effect(e.strip().upper()) for e in self.approval_required_effects.split(",") if e.strip())
+    @property
+    def mcp_allowed_host_set(self) -> set[str]:
+        return {h.strip().lower() for h in self.mcp_allowed_hosts.split(",") if h.strip()}
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 INSECURE_MARKERS = ("CHANGE", "change-me")
 def insecure_settings(s: "Settings") -> list[str]:
